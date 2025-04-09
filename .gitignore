@@ -1,0 +1,21 @@
+# Ne pas inclure les dépendances Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Fichier d'environnement contenant des informations sensibles
+.env
+readme.md
+
+# Cache et logs
+*.log
+logs/
+*.sqlite
+*.sqlite3
+.DS_Store
+
+# Ignorer les fichiers de l'éditeur de code
+.vscode/
+.idea/
+*.swp
