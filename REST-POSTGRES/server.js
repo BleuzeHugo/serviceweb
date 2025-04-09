@@ -61,11 +61,36 @@ app.post("/products", async (req, res) => {
 });
 
 app.get("/products", async (req, res) => {
-  const products = await sql`
-      SELECT * FROM products
-      `;
+  const { name, about, price } = req.query;
 
-  res.send(products);
+  try {
+    const filters = [];
+
+    if (name) {
+      filters.push(`name ILIKE '%${name}%'`);
+    }
+    if (about) {
+      filters.push(`about ILIKE '%${about}%'`);
+    }
+    if (price) {
+      filters.push(`price <= ${parseFloat(price)}`);
+    }
+
+    // Construire dynamiquement la clause WHERE
+    const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+
+    const query = `
+      SELECT * FROM products
+      ${whereClause}
+    `;
+
+    const products = await sql.unsafe(query);
+
+    res.send(products);
+  } catch (error) {
+    console.error("Database error:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
 });
 
 app.get("/products/:id", async (req, res) => {
