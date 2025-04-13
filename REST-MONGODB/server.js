@@ -93,3 +93,87 @@ app.post("/categories", async (req, res) => {
     res.status(400).send(result);
   }
 });
+
+app.get("/products/:id", async (req, res) => {
+  try {
+    const _id = new ObjectId(req.params.id);
+
+    const result = await db.collection("products").aggregate([
+      { $match: { _id } },
+      {
+        $lookup: {
+          from: "categories",
+          localField: "categoryIds",
+          foreignField: "_id",
+          as: "categories",
+        },
+      },
+    ]).toArray();
+
+    if (result.length === 0) {
+      return res.status(404).send({ error: "Produit non trouvé" });
+    }
+
+    res.send(result[0]);
+  } catch (e) {
+    res.status(400).send({ error: "ID invalide" });
+  }
+});
+
+
+app.put("/products/:id", async (req, res) => {
+  const parseResult = await CreateProductSchema.safeParse(req.body);
+
+  if (!parseResult.success) {
+    return res.status(400).send(parseResult);
+  }
+
+  try {
+    const _id = new ObjectId(req.params.id);
+    const { name, about, price, categoryIds } = parseResult.data;
+    const categoryObjectIds = categoryIds.map((id) => new ObjectId(id));
+
+    const updateResult = await db.collection("products").updateOne(
+      { _id },
+      {
+        $set: {
+          name,
+          about,
+          price,
+          categoryIds: categoryObjectIds,
+        },
+      }
+    );
+
+    if (updateResult.matchedCount === 0) {
+      return res.status(404).send({ error: "Produit non trouvé" });
+    }
+
+    res.send({
+      _id,
+      name,
+      about,
+      price,
+      categoryIds: categoryObjectIds,
+    });
+  } catch (e) {
+    res.status(400).send({ error: "ID invalide" });
+  }
+});
+
+app.delete("/products/:id", async (req, res) => {
+  try {
+    const _id = new ObjectId(req.params.id);
+
+    const deleteResult = await db.collection("products").deleteOne({ _id });
+
+    if (deleteResult.deletedCount === 0) {
+      return res.status(404).send({ error: "Produit non trouvé" });
+    }
+
+    res.send({ message: "Produit supprimé avec succès" });
+  } catch (e) {
+    res.status(400).send({ error: "ID invalide" });
+  }
+});
+

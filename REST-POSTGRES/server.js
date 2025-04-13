@@ -285,3 +285,146 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`Listening on http://localhost:${port}`);
 });
+
+const OrderSchema = z.object({
+  id: z.number(),
+  userId: z.string(),
+  total: z.number(),
+  payment: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
+const CreateOrderSchema = z.object({
+  userId: z.coerce.number(),
+  productIds: z.array(z.coerce.number())
+});
+
+app.post("/orders", async (req, res) => {
+  const result = await CreateOrderSchema.safeParse(req.body);
+
+  if (!result.success) return res.status(400).send(result);
+
+  const { userId, productIds } = result.data;
+
+  try {
+    const products = await sql`
+      SELECT * FROM products WHERE id = ANY(${productIds})
+    `;
+    if (products.length !== productIds.length) {
+      return res.status(400).send({ message: "One or more product IDs are invalid." });
+    }
+
+    const total = products.reduce((sum, p) => sum + p.price, 0) * 1.2;
+
+    const [order] = await sql`
+      INSERT INTO orders (user_id, total)
+      VALUES (${userId}, ${total})
+      RETURNING *
+    `;
+
+    for (const productId of productIds) {
+      await sql`
+        INSERT INTO order_items (order_id, product_id)
+        VALUES (${order.id}, ${productId})
+      `;
+    }
+
+    res.status(201).send(order);
+  } catch (error) {
+    console.error("Error creating order:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
+});
+
+app.get("/orders", async (req, res) => {
+  try {
+    const orders = await sql`SELECT * FROM orders`;
+
+    const enriched = await Promise.all(orders.map(async (order) => {
+      const user = await sql`SELECT id, username, email FROM users WHERE id = ${order.user_id}`;
+      const products = await sql`
+        SELECT p.* FROM products p
+        JOIN order_items oi ON p.id = oi.product_id
+        WHERE oi.order_id = ${order.id}
+      `;
+      return { ...order, user: user[0], products };
+    }));
+
+    res.send(enriched);
+  } catch (error) {
+    console.error("Error fetching orders:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
+});
+
+
+app.get("/orders/:id", async (req, res) => {
+  try {
+    const orders = await sql`SELECT * FROM orders WHERE id = ${req.params.id}`;
+
+    if (orders.length === 0) return res.status(404).send({ message: "Order not found" });
+
+    const order = orders[0];
+    const user = await sql`SELECT id, username, email FROM users WHERE id = ${order.user_id}`;
+    const products = await sql`
+      SELECT p.* FROM products p
+      JOIN order_items oi ON p.id = oi.product_id
+      WHERE oi.order_id = ${order.id}
+    `;
+
+    res.send({ ...order, user: user[0], products });
+  } catch (error) {
+    console.error("Error fetching order:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
+});
+
+app.put("/orders/:id", async (req, res) => {
+  const result = await CreateOrderSchema.safeParse(req.body);
+
+  if (!result.success) return res.status(400).send(result);
+
+  const { userId, productIds } = result.data;
+
+  try {
+    const products = await sql`SELECT * FROM products WHERE id = ANY(${productIds})`;
+    const total = products.reduce((sum, p) => sum + p.price, 0) * 1.2;
+
+    const updated = await sql`
+      UPDATE orders
+      SET user_id = ${userId}, total = ${total}, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${req.params.id}
+      RETURNING *
+    `;
+    if (updated.length === 0) return res.status(404).send({ message: "Order not found" });
+
+    await sql`DELETE FROM order_items WHERE order_id = ${req.params.id}`;
+    for (const productId of productIds) {
+      await sql`
+        INSERT INTO order_items (order_id, product_id)
+        VALUES (${req.params.id}, ${productId})
+      `;
+    }
+
+    res.send(updated[0]);
+  } catch (error) {
+    console.error("Error updating order:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
+});
+
+app.delete("/orders/:id", async (req, res) => {
+  try {
+    await sql`DELETE FROM order_items WHERE order_id = ${req.params.id}`;
+    const deleted = await sql`DELETE FROM orders WHERE id = ${req.params.id} RETURNING *`;
+
+    if (deleted.length === 0) return res.status(404).send({ message: "Order not found" });
+
+    res.send(deleted[0]);
+  } catch (error) {
+    console.error("Error deleting order:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
+});
+
